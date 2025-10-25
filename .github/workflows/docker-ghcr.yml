@@ -1,0 +1,61 @@
+name: 🐳 Build and Publish to GHCR
+
+# 定义触发事件：在推送到 main 分支时自动触发
+on:
+  push:
+    branches: [ "main" ]
+  # 允许在 GitHub 界面手动触发
+  workflow_dispatch:
+
+# 权限设置：必须要有 packages: write 权限才能推送到 GHCR
+permissions:
+  contents: read
+  packages: write
+  # 如果需要读/写 Issues, PRs 等，也要在此处添加相应的权限
+
+# 定义构建任务
+jobs:
+  build_and_push_image:
+    runs-on: ubuntu-latest
+    
+    # 环境变量：定义注册表和仓库名，便于管理
+    env:
+      REGISTRY: ghcr.io
+      # 使用 GitHub 的仓库路径作为镜像名
+      IMAGE_NAME: ${{ github.repository }}
+
+    steps:
+    - name: ⬇️ Checkout code
+      uses: actions/checkout@v4
+
+    - name: 🛠️ Set up Docker Buildx
+      # 启用 BuildKit 和多平台构建支持
+      uses: docker/setup-buildx-action@v3
+      
+    - name: 🔑 Login to GHCR
+      # 使用 GitHub Token 登录到 GitHub Container Registry (GHCR)
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }} # 使用触发 action 的用户或机器人
+        password: ${{ secrets.GITHUB_TOKEN }} # 使用内置的 GITHUB_TOKEN
+
+    - name: 🏷️ Extract Docker metadata (Tags and Labels)
+      # 自动生成基于 Git 信息的标签 (如 latest, commit SHA)
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=sha,format=short
+
+    - name: 🔨 Build and Push Docker image
+      # 构建镜像并推送到 GHCR
+      uses: docker/build-push-action@v6
+      with:
+        context: . # Dockerfile 所在的上下文路径
+        file: ./Dockerfile # Dockerfile 路径
+        push: true # 设为 true 才会推送到 GHCR
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
